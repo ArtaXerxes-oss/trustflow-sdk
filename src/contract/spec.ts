@@ -120,6 +120,107 @@ function invalidValue(path: string, expected: string, val: unknown): TrustFlowEr
   );
 }
 
+/** `ScVal` types whose host ordering is numeric rather than bytewise. */
+const NUMERIC_SCV_VALS = new Set([
+  'scvU32',
+  'scvI32',
+  'scvU64',
+  'scvI64',
+  'scvU128',
+  'scvI128',
+  'scvU256',
+  'scvI256',
+  'scvTimepoint',
+  'scvDuration',
+]);
+
+/** Raw bytes of a symbol/string/bytes `ScVal`, for bytewise comparison. */
+function scValBytes(val: xdr.ScVal): Buffer {
+  const raw = val.value() as string | Buffer | Uint8Array;
+  return typeof raw === 'string' ? Buffer.from(raw, 'utf8') : Buffer.from(raw);
+}
+
+/**
+ * Total order over two `ScVal` map keys, matching how the Soroban host compares
+ * them: the type discriminant first, then the value — numerically for integers,
+ * bytewise for symbols, strings and bytes.
+ *
+ * `@stellar/stellar-sdk`'s own `xdr.scvSortedMap` is deliberately "best-effort"
+ * (its own comment says so) and is not good enough here: it falls back to
+ * `String.prototype.localeCompare`, which orders by ICU collation rules rather
+ * than by bytes, so e.g. the symbol keys `['Alpha', 'Zeta', '_x', 'a10', 'a2']`
+ * come out as `['_x', 'a10', 'a2', 'alpha', 'Alpha', 'Zeta']` instead of the
+ * host's bytewise order. It also silently keeps duplicate keys.
+ */
+function compareScMapKeys(a: xdr.ScVal, b: xdr.ScVal): number {
+  const nameA = a.switch().name;
+  const nameB = b.switch().name;
+  if (nameA !== nameB) {
+    return a.switch().value - b.switch().value;
+  }
+
+  if (NUMERIC_SCV_VALS.has(nameA)) {
+    // `scValToNative` yields a number for u32/i32 and a bigint for every wider
+    // integer type; normalise so mixed widths still compare numerically.
+    const bigA = BigInt(scValToNative(a) as bigint | number);
+    const bigB = BigInt(scValToNative(b) as bigint | number);
+    if (bigA < bigB) return -1;
+    return bigA > bigB ? 1 : 0;
+  }
+
+  switch (nameA) {
+    case 'scvSymbol':
+    case 'scvString':
+    case 'scvBytes':
+      return Buffer.compare(scValBytes(a), scValBytes(b));
+    case 'scvAddress':
+      // `ScAddress` is an XDR union, so the discriminant (account vs contract,
+      // public key vs contract id) is encoded ahead of the 32-byte payload.
+      // Comparing the encoded form therefore reproduces the host's
+      // type-then-bytes ordering, which a base58 `localeCompare` would not.
+      return Buffer.compare(a.toXDR(), b.toXDR());
+    case 'scvBool':
+      return (a.b() ? 1 : 0) - (b.b() ? 1 : 0);
+    default:
+      // Vectors, nested maps and anything else: the canonical encoding is a
+      // deterministic bytewise order. Nested collections are not expressible as
+      // a spec map key, so this only keeps the ordering total.
+      return Buffer.compare(a.toXDR(), b.toXDR());
+  }
+}
+
+/** Readable form of a map key for the duplicate-key error message. */
+function describeScMapKey(val: xdr.ScVal): string {
+  const native = scValToNative(val);
+  return native === null || typeof native === 'object' ? val.switch().name : String(native);
+}
+
+/**
+ * Wraps already-encoded `ScMapEntry` values in an `scvMap`, ordered by key the
+ * way the Soroban host orders map keys.
+ *
+ * The runtime requires a map's entries to be in strictly increasing key order
+ * and rejects anything else, so callers and contract specs that happen to supply
+ * unsorted keys (or duplicate ones) would otherwise produce an argument the host
+ * refuses to execute.
+ *
+ * @throws {TrustFlowError} `INVALID_CONTRACT_CALL` if two entries encode to the
+ * same key, which would make the map invalid
+ */
+function sortedScvMap(entries: xdr.ScMapEntry[], path: string): xdr.ScVal {
+  const sorted = [...entries].sort((a, b) => compareScMapKeys(a.key(), b.key()));
+  for (let i = 1; i < sorted.length; i++) {
+    if (compareScMapKeys(sorted[i - 1].key(), sorted[i].key()) === 0) {
+      throw new TrustFlowError(
+        `Invalid ${path}: duplicate map key '${describeScMapKey(sorted[i].key())}'. ` +
+          'Soroban map keys must be unique.',
+        'INVALID_CONTRACT_CALL',
+      );
+    }
+  }
+  return xdr.ScVal.scvMap(sorted);
+}
+
 /**
  * Accepts a `bigint`, a safe-integer `number` or a base-10 integer string and checks it against
  * the range of the spec type. Never coerces (`'abc'`, `1.5`, `NaN` and booleans are rejected).
@@ -140,7 +241,11 @@ function parseInteger(val: unknown, path: string, spec: IntegerSpec): bigint {
   } else if (typeof val === 'string' && /^-?\d+$/.test(val)) {
     big = BigInt(val);
   } else {
-    throw invalidValue(path, `an integer (${spec.type}) as a number, bigint or numeric string`, val);
+    throw invalidValue(
+      path,
+      `an integer (${spec.type}) as a number, bigint or numeric string`,
+      val,
+    );
   }
 
   if (big < spec.min || big > spec.max) {
@@ -156,7 +261,11 @@ function parseInteger(val: unknown, path: string, spec: IntegerSpec): bigint {
 function parseBytes(val: unknown, path: string): Buffer {
   if (typeof val === 'string') {
     if (val.length % 2 !== 0 || !/^[0-9a-fA-F]*$/.test(val)) {
-      throw invalidValue(path, 'a hex string (even length, characters 0-9 a-f) or a Uint8Array', val);
+      throw invalidValue(
+        path,
+        'a hex string (even length, characters 0-9 a-f) or a Uint8Array',
+        val,
+      );
     }
     return Buffer.from(val, 'hex');
   }
@@ -323,6 +432,7 @@ export class SorobanSpec {
    * @param args - Positional arguments array or object map of named parameters
    * @throws {TrustFlowError} `INVALID_CONTRACT_CALL` for an unknown method, a wrong argument
    * count, unknown or missing named arguments, or any argument that fails validation
+   * @see {@link SorobanSpec.valToScVal} for how maps and structs are ordered
    */
   encodeArgs(methodName: string, args: Record<string, unknown> | unknown[]): xdr.ScVal[] {
     const fnSpec = this.getFunction(methodName);
@@ -371,11 +481,19 @@ export class SorobanSpec {
   /**
    * Converts a single JavaScript value into an `xdr.ScVal` matching the spec type definition.
    *
+   * `Map` values and user-defined structs are encoded as `scvMap` with their
+   * entries ordered by key the way the Soroban host orders map keys — the type
+   * discriminant first, then the value (numerically for integer keys, bytewise
+   * for symbol, string and bytes keys). Neither the order a struct's fields are
+   * declared in nor the insertion order of a `Map` or object therefore changes
+   * the encoding, which the runtime requires to be in sorted order.
+   *
    * @param val - JavaScript value to encode
    * @param typeDef - Soroban spec type definition
    * @param path - Name of the value used in error messages (defaults to `value`); nested
    * values append `[index]`, `[key]` or `.field`
-   * @throws {TrustFlowError} `INVALID_CONTRACT_CALL` if `val` is not a valid value of `typeDef`
+   * @throws {TrustFlowError} `INVALID_CONTRACT_CALL` if `val` is not a valid value of `typeDef`,
+   * or if a map contains two entries that encode to the same key
    */
   valToScVal(val: unknown, typeDef: xdr.ScSpecTypeDef, path = 'value'): xdr.ScVal {
     try {
@@ -430,11 +548,7 @@ export class SorobanSpec {
         return nativeToScVal(val, { type: 'string' });
       case 'scSpecTypeSymbol':
         if (typeof val !== 'string' || !SYMBOL_PATTERN.test(val)) {
-          throw invalidValue(
-            path,
-            'a symbol (1-32 characters from A-Z, a-z, 0-9 and _)',
-            val,
-          );
+          throw invalidValue(path, 'a symbol (1-32 characters from A-Z, a-z, 0-9 and _)', val);
         }
         return nativeToScVal(val, { type: 'symbol' });
       case 'scSpecTypeAddress': {
@@ -480,7 +594,7 @@ export class SorobanSpec {
               val: this.valToScVal(v, valType, `${path}[${String(k)}]`),
             }),
         );
-        return xdr.ScVal.scvMap(entries);
+        return sortedScvMap(entries, path);
       }
       case 'scSpecTypeTuple': {
         if (!Array.isArray(val)) throw invalidValue(path, 'an array', val);
@@ -519,7 +633,9 @@ export class SorobanSpec {
                 val: this.valToScVal(record[field.name], field.type, `${path}.${field.name}`),
               }),
           );
-          return xdr.ScVal.scvMap(mapEntries);
+          // Struct fields are declared in contract source order, which is not
+          // necessarily the key order the host requires.
+          return sortedScvMap(mapEntries, path);
         }
         return nativeToScVal(val);
       }

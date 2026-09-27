@@ -1,6 +1,25 @@
 # Changelog
 
 ## [Unreleased]
+- Fixed `SorobanSpec.valToScVal` emitting `scvMap` arguments whose keys were not sorted (#266).
+  The Soroban runtime requires a map's entries to be in strictly increasing key order, so a struct
+  whose fields were not declared alphabetically (`{ zeta, alpha }` encoded as `['zeta', 'alpha']`)
+  and any map passed with unsorted keys — a `Map`'s insertion order, or a plain object's — produced
+  an argument the host rejects, which is every argument `SorobanContractClient.invoke` encodes.
+  `scSpecTypeMap` and UDT structs are now both emitted through a host-order comparator: the key
+  type's discriminant first, then the value, numerically for integer keys (`2` before `10`, `-9`
+  before `-1`) and bytewise for `Symbol`/`String`/`Bytes` keys (`Zeta` before `alpha`). `xdr.scvSortedMap`
+  is deliberately not used — it is best-effort by its own comment and orders string-like keys with
+  `localeCompare`, which is not a bytewise order. Entries that encode to the same key are now
+  rejected with `INVALID_CONTRACT_CALL` instead of producing an invalid map. Decoding is unchanged:
+  `scValToNative` turns a map into an object, so round-tripping is unaffected. The `Map<K, V>` and
+  UDT struct rows in `docs/CONTRACT_BINDINGS.md` are no longer marked as gaps.
+- Fixed `EscrowBuilder.build()` returning the builder's own internal `params` object instead of a
+  copy, so a later `set*` call retroactively changed earlier results and a caller mutating a built
+  object leaked back into the builder. It now returns an independent snapshot, which makes the
+  documented "keep one builder as a template, call `build()` per gig" pattern actually work. The
+  "immutable after `build()`" wording in `docs/ARCHITECTURE.md` was never accurate and has been
+  reworded. Input validation in `build()` is unchanged (#214).
 - `SorobanSpec.encodeArgs` / `valToScVal` now validate instead of coercing (#265). Missing,
   misspelled or extra named arguments (and struct fields), non-boolean `bool` values, non-integer
   or out-of-range `u32`/`i32`/64/128/256-bit integers, non-hex or wrong-length `Bytes`/`BytesN`,
