@@ -1,6 +1,22 @@
 # Changelog
 
 ## [Unreleased]
+- The `@trustflow/sdk/react` entry is now emitted as a client module: `dist/hooks/index.js` and
+  `dist/hooks/index.mjs` start with a `'use client'` directive. The entry exports hooks that call
+  `useState`, `useEffect` and `useCallback`, so in the Next.js App Router importing it from a
+  Server Component — or from any file that is not itself marked `'use client'` — failed, forcing
+  every consumer to re-wrap the hooks in their own client file. The repo's own `.env.example` uses
+  `NEXT_PUBLIC_*` variables, so App Router consumers are the expected audience. The root, `/escrow`,
+  `/wallet` and `/utils` entries are deliberately left unmarked so they stay server-safe. The
+  directive is injected into the build output by `scripts/inject-use-client.js`, run after `tsup`
+  in `npm run build`, because a module-level directive does not survive bundling — a `'use client'`
+  in `src/hooks/index.ts` is dropped by tsup and by any consumer's bundler. `tsup.config.ts` is
+  unchanged: a per-entry `banner` was tried and rejected, because tsup runs the configs of an array
+  in parallel against a single `outDir`, so the second config races the first one's `clean` and
+  leaks the banner onto `dist/index.js` ("Module level directives cause errors when bundled, "use
+  client" in "dist/index.js" was ignored") — the opposite of what the entry split is for.
+  `tests/use-client-directive.test.ts` (15 cases) fails the build if the directive goes missing,
+  reaches a non-React entry or a shared chunk, or is injected twice.
 - Added the MIT `LICENSE` file. `package.json` declared `"license": "MIT"` and the README linked
   to `./LICENSE`, but no such file existed, so the link was dead, the published tarball carried no
   license text, and `scripts/verify-release.js` — which has always required a `LICENSE` in the
