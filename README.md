@@ -312,6 +312,7 @@ responsibility until a native, backend-backed `MultiSigStateStore` lands — tra
 - **Multi-stage pipeline** — `TransactionPipeline` orchestrates assemble → simulate → prepare → fee-bump → submit with typed `PipelineResult<T>` errors and built-in exponential backoff retries
 - **Two API styles** — Class-based for long-lived services, function-based for scripts (throws `TrustFlowError` on failure)
 - **Typed error codes** — Branch on `error.code` (ASSEMBLY_ERROR, SIMULATION_ERROR, etc.) instead of message strings
+- **Builder snapshots** — `EscrowBuilder.build()` returns an independent copy of its params, so a builder can be reused as a template and earlier results are never mutated by later `set*` calls
 - **Network Agnostic**: Easily switch between Testnet and Mainnet with custom RPC URLs
 - **Pure Utilities**: Side-effect-free helper functions for formatting and validation
 
