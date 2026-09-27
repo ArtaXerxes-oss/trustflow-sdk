@@ -1,6 +1,26 @@
 # Changelog
 
 ## [Unreleased]
+- Added the MIT `LICENSE` file. `package.json` declared `"license": "MIT"` and the README linked
+  to `./LICENSE`, but no such file existed, so the link was dead, the published tarball carried no
+  license text, and `scripts/verify-release.js` — which has always required a `LICENSE` in the
+  package — would have failed every release.
+- Completed the package metadata. Added `repository`, `bugs`, `homepage`, `author` and `keywords`
+  (npm provenance validates the published package's `repository` against the GitHub repo the
+  release workflow runs in), `engines.node: ">=20"` (the floor `@stellar/stellar-sdk` requires and
+  the versions CI tests) and `"type": "commonjs"`, which matches the `.js`/`.mjs` output split and
+  stops Node from having to detect the package type. `publint` now reports 1 warning and 0
+  suggestions, down from 1 warning and 3 suggestions; the remaining warning is the pre-existing
+  ambiguity of a single `types` condition in `exports` alongside both `.d.ts` and `.d.mts` output,
+  which is a type-resolution concern rather than missing metadata. The README's TypeScript badge
+  said `5.0` while `devDependencies` pins `typescript@^6.0.3`; it now reads `6.0`.
+- Declared `"sideEffects": false` so bundlers can tree-shake the SDK. Audited every module-level
+  statement in `src/` first: they are all pure declarations — `const`/`let` bindings, regexes,
+  `new Set([...])`, `new Map()`, and `new SDKLogger()` in `src/utils/logger.ts`. The state in
+  `src/auth/session.ts` (`override`, `inMemoryFallback`) and `src/tx-pipeline/queue.ts` (`lanes`)
+  is module-local and, in session.ts, deliberately resolved lazily rather than at import time, so
+  dropping an otherwise-unused module has no observable effect. No module performs I/O, touches a
+  global or registers a handler on import.
 - Fixed `SorobanSpec.valToScVal` emitting `scvMap` arguments whose keys were not sorted (#266).
   The Soroban runtime requires a map's entries to be in strictly increasing key order, so a struct
   whose fields were not declared alphabetically (`{ zeta, alpha }` encoded as `['zeta', 'alpha']`)
