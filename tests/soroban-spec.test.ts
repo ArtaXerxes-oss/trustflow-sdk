@@ -446,11 +446,15 @@ describe('SorobanSpec primitive validation (#265)', () => {
   });
 
   describe('bytes and BytesN', () => {
+    // `ScVal.bytes()` returns a `Uint8Array`, whose `toString()` ignores an
+    // encoding argument — wrap in `Buffer` to get the hex form.
+    const hex = (scVal: xdr.ScVal): string => Buffer.from(scVal.bytes() as Uint8Array).toString('hex');
+
     it('accepts hex strings, Buffers and Uint8Arrays for Bytes', () => {
       const spec = single(t.bytes());
 
-      expect(spec.encodeArgs('f', ['00ff'])[0].bytes().toString('hex')).toBe('00ff');
-      expect(spec.encodeArgs('f', ['AB'])[0].bytes().toString('hex')).toBe('ab');
+      expect(hex(spec.encodeArgs('f', ['00ff'])[0])).toBe('00ff');
+      expect(hex(spec.encodeArgs('f', ['AB'])[0])).toBe('ab');
       expect(spec.encodeArgs('f', [''])[0].bytes().length).toBe(0);
       expect(spec.encodeArgs('f', [Buffer.from([1, 2, 3])])[0].bytes().length).toBe(3);
       expect(spec.encodeArgs('f', [new Uint8Array([9])])[0].bytes().length).toBe(1);

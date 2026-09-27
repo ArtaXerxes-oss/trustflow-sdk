@@ -1,6 +1,5 @@
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
 /**
@@ -14,7 +13,13 @@ describe('built entries share module identity (#304)', () => {
   let outDir: string;
 
   beforeAll(() => {
-    outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'trustflow-dist-'));
+    // Inside the project tree (and therefore inside `node_modules/`, which is
+    // gitignored) so the built files resolve the SDK's own dependencies —
+    // `require('axios')` from an OS temp dir cannot walk up to them, for the
+    // CJS *and* ESM halves of the check.
+    const cacheRoot = path.join(root, 'node_modules', '.cache');
+    fs.mkdirSync(cacheRoot, { recursive: true });
+    outDir = fs.mkdtempSync(path.join(cacheRoot, 'trustflow-dist-'));
     execFileSync('npx', ['tsup', '--no-dts', '--out-dir', outDir], { cwd: root, stdio: 'pipe' });
   }, 180_000);
 
