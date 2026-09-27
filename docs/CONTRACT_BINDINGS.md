@@ -125,15 +125,33 @@ Encoding is done by `SorobanSpec.valToScVal` (used by `encodeArgs`), decoding by
 | `Option<T>` | `null` / `undefined` for none, otherwise a `T` | `void` or the inner value | inner value or `null` | ok |
 | `Vec<T>` | array of `T` (other values throw `INVALID_CONTRACT_CALL`) | `vec` | array | ok |
 | `Tuple` | array with exactly as many items as the spec, encoded item by item | `vec` | array | ok |
-| `Map<K, V>` | `Map`, or a plain object (keys are strings); any other input throws | `map` | `Map` or object | **gap**: entries are not key-sorted (#266) |
+| `Map<K, V>` | `Map`, or a plain object (keys are strings); any other input throws; two entries encoding to the same key throw | `map`, entries key-sorted | `Map` or object | ok |
 | `Result<T, E>` | not matched by the encoder, falls through to `nativeToScVal(val)` | inferred | native value | unsupported |
-| UDT struct | object with one property per spec field (unknown or missing non-`Option` fields throw) | `map` keyed by field name | object | **gap**: keys are in spec order, not sorted (#266) |
+| UDT struct | object with one property per spec field (unknown or missing non-`Option` fields throw) | `map` keyed by field name, entries key-sorted | object | ok |
 | UDT enum, UDT union | not matched by name, falls through to `nativeToScVal(val)` | inferred | native value | **gap** (#270) |
 
 Encoding validates instead of coercing. For an object argument map a missing key or an extra key is
 rejected (`Option<T>` parameters may be omitted), and every failure raises a `TrustFlowError` with
 code `INVALID_CONTRACT_CALL` that names the parameter and, for nested values, the path, for example
 `Invalid args.metadata[2]: expected an integer (u32) ...`.
+
+### Map key order
+
+The Soroban runtime requires an `scvMap`'s entries to be in strictly increasing key order and
+rejects anything else, so `Map<K, V>` and UDT structs are encoded with their entries sorted by key
+regardless of the order they were declared or supplied in. The order used is the host's: the key
+type's discriminant first, then the value — numerically for integer keys (so `2` sorts before `10`,
+and `-9` before `-1`), bytewise for `Symbol`, `String` and `Bytes` keys (so `Zeta` sorts before
+`alpha`, and `a2` before `a10`), and by XDR encoding for `Address` keys, which orders an account
+address before a contract address.
+
+`sdk.scvSortedMap` is not used for this: it is best-effort by its own documentation and falls back
+to `localeCompare`, which is not a bytewise order.
+
+Two entries that encode to the same key are rejected with `INVALID_CONTRACT_CALL` rather than
+producing an invalid map. A `Map` or object cannot hold duplicate keys, so this only triggers for
+keys that are distinct natively but encode alike — `1`, `1n` and `'1'` all encode to `scvU32(1)` —
+or for a contract spec that declares the same struct field twice.
 
 ## 4. `read_*`, `invoke` and `simulate_*`
 

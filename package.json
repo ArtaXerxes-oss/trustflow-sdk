@@ -2,9 +2,11 @@
   "name": "@trustflow/sdk",
   "version": "0.2.1",
   "description": "SDK to interact with TrustFlow Protocol contracts.",
+  "type": "commonjs",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
+  "sideEffects": false,
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -35,12 +37,35 @@
   "files": [
     "dist"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Chidubemkingsley/trustflow-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Chidubemkingsley/trustflow-sdk/issues"
+  },
+  "homepage": "https://github.com/Chidubemkingsley/trustflow-sdk#readme",
+  "keywords": [
+    "stellar",
+    "soroban",
+    "trustflow",
+    "escrow",
+    "smart-contracts",
+    "blockchain",
+    "sdk",
+    "typescript",
+    "react"
+  ],
+  "author": "TrustFlow Protocol",
+  "engines": {
+    "node": ">=20"
+  },
   "publishConfig": {
     "access": "public",
     "provenance": true
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node scripts/inject-use-client.js",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",

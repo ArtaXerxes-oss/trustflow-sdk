@@ -227,4 +227,4 @@ Each entry point shares common classes (TrustFlowError, logger) via `tsup`'s chu
 4. **Type safety** — All public APIs use TypeScript strict mode; Zod schemas validate runtime inputs
 5. **Side effects isolated** — Retry logic, logging, caching are opt-in or explicit; contract arguments are pure functions
 6. **Network agnostic** — Accept `Network` type (string union 'TESTNET' | 'MAINNET', not an enum), support custom RPC URLs
-7. **Builder pattern for complex params** — `EscrowBuilder` provides fluent construction; immutable after `build()`
+7. **Builder pattern for complex params** — `EscrowBuilder` provides fluent construction; `build()` returns an independent snapshot, so a builder can be reused as a template and earlier results are never mutated by later `set*` calls

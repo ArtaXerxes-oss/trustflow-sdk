@@ -1,7 +1,7 @@
 # 📦 TrustFlow SDK
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6.0-blue.svg)](https://www.typescriptlang.org/)
 
 > **Type-safe TypeScript SDK for building gig-economy applications on the TrustFlow Protocol (Stellar/Soroban).**
 
@@ -312,6 +312,7 @@ responsibility until a native, backend-backed `MultiSigStateStore` lands — tra
 - **Multi-stage pipeline** — `TransactionPipeline` orchestrates assemble → simulate → prepare → fee-bump → submit with typed `PipelineResult<T>` errors and built-in exponential backoff retries
 - **Two API styles** — Class-based for long-lived services, function-based for scripts (throws `TrustFlowError` on failure)
 - **Typed error codes** — Branch on `error.code` (ASSEMBLY_ERROR, SIMULATION_ERROR, etc.) instead of message strings
+- **Builder snapshots** — `EscrowBuilder.build()` returns an independent copy of its params, so a builder can be reused as a template and earlier results are never mutated by later `set*` calls
 - **Network Agnostic**: Easily switch between Testnet and Mainnet with custom RPC URLs
 - **Pure Utilities**: Side-effect-free helper functions for formatting and validation
 
@@ -328,6 +329,19 @@ import { useWallet, useBalance, useTransaction } from '@trustflow/sdk/react';
 ```
 
 `react` (`^18.0.0 || ^19.0.0`) is a peer dependency, required only if you import from `/react`. `useEscrow` is exported here too — it wraps the standalone `createEscrow` / `releaseEscrow` functions with loading / error state.
+
+**This entry is a client module.** It uses `useState`, `useEffect` and `useCallback`, so `dist/hooks/index.js` and `dist/hooks/index.mjs` are emitted with a leading `'use client'` directive. In the Next.js App Router that means you can import the hooks straight from a Server Component without wrapping them in your own client file:
+
+```tsx
+// app/page.tsx — a Server Component, no 'use client' needed
+import { useWallet } from '@trustflow/sdk/react';
+
+export default function Page() {
+  /* ... */
+}
+```
+
+The other entries — the root, `/escrow`, `/wallet` and `/utils` — are deliberately **not** marked as client modules, so they stay usable on the server. The directive is injected into the build output rather than written in the source, because bundlers drop module-level directives; `npm run build` runs `scripts/inject-use-client.js` after `tsup` to do it, and `tests/use-client-directive.test.ts` fails the build if it ever goes missing or spreads to a non-React entry.
 
 The `@trustflow/sdk/escrow`, `@trustflow/sdk/wallet`, and `@trustflow/sdk/utils` subpaths used in the Quick Start above are declared in `package.json`'s `exports` and built as their own targets, so those imports resolve against the published package as well as from source.
 

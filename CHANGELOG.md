@@ -1,6 +1,61 @@
 # Changelog
 
 ## [Unreleased]
+- The `@trustflow/sdk/react` entry is now emitted as a client module: `dist/hooks/index.js` and
+  `dist/hooks/index.mjs` start with a `'use client'` directive. The entry exports hooks that call
+  `useState`, `useEffect` and `useCallback`, so in the Next.js App Router importing it from a
+  Server Component — or from any file that is not itself marked `'use client'` — failed, forcing
+  every consumer to re-wrap the hooks in their own client file. The repo's own `.env.example` uses
+  `NEXT_PUBLIC_*` variables, so App Router consumers are the expected audience. The root, `/escrow`,
+  `/wallet` and `/utils` entries are deliberately left unmarked so they stay server-safe. The
+  directive is injected into the build output by `scripts/inject-use-client.js`, run after `tsup`
+  in `npm run build`, because a module-level directive does not survive bundling — a `'use client'`
+  in `src/hooks/index.ts` is dropped by tsup and by any consumer's bundler. `tsup.config.ts` is
+  unchanged: a per-entry `banner` was tried and rejected, because tsup runs the configs of an array
+  in parallel against a single `outDir`, so the second config races the first one's `clean` and
+  leaks the banner onto `dist/index.js` ("Module level directives cause errors when bundled, "use
+  client" in "dist/index.js" was ignored") — the opposite of what the entry split is for.
+  `tests/use-client-directive.test.ts` (15 cases) fails the build if the directive goes missing,
+  reaches a non-React entry or a shared chunk, or is injected twice.
+- Added the MIT `LICENSE` file. `package.json` declared `"license": "MIT"` and the README linked
+  to `./LICENSE`, but no such file existed, so the link was dead, the published tarball carried no
+  license text, and `scripts/verify-release.js` — which has always required a `LICENSE` in the
+  package — would have failed every release.
+- Completed the package metadata. Added `repository`, `bugs`, `homepage`, `author` and `keywords`
+  (npm provenance validates the published package's `repository` against the GitHub repo the
+  release workflow runs in), `engines.node: ">=20"` (the floor `@stellar/stellar-sdk` requires and
+  the versions CI tests) and `"type": "commonjs"`, which matches the `.js`/`.mjs` output split and
+  stops Node from having to detect the package type. `publint` now reports 1 warning and 0
+  suggestions, down from 1 warning and 3 suggestions; the remaining warning is the pre-existing
+  ambiguity of a single `types` condition in `exports` alongside both `.d.ts` and `.d.mts` output,
+  which is a type-resolution concern rather than missing metadata. The README's TypeScript badge
+  said `5.0` while `devDependencies` pins `typescript@^6.0.3`; it now reads `6.0`.
+- Declared `"sideEffects": false` so bundlers can tree-shake the SDK. Audited every module-level
+  statement in `src/` first: they are all pure declarations — `const`/`let` bindings, regexes,
+  `new Set([...])`, `new Map()`, and `new SDKLogger()` in `src/utils/logger.ts`. The state in
+  `src/auth/session.ts` (`override`, `inMemoryFallback`) and `src/tx-pipeline/queue.ts` (`lanes`)
+  is module-local and, in session.ts, deliberately resolved lazily rather than at import time, so
+  dropping an otherwise-unused module has no observable effect. No module performs I/O, touches a
+  global or registers a handler on import.
+- Fixed `SorobanSpec.valToScVal` emitting `scvMap` arguments whose keys were not sorted (#266).
+  The Soroban runtime requires a map's entries to be in strictly increasing key order, so a struct
+  whose fields were not declared alphabetically (`{ zeta, alpha }` encoded as `['zeta', 'alpha']`)
+  and any map passed with unsorted keys — a `Map`'s insertion order, or a plain object's — produced
+  an argument the host rejects, which is every argument `SorobanContractClient.invoke` encodes.
+  `scSpecTypeMap` and UDT structs are now both emitted through a host-order comparator: the key
+  type's discriminant first, then the value, numerically for integer keys (`2` before `10`, `-9`
+  before `-1`) and bytewise for `Symbol`/`String`/`Bytes` keys (`Zeta` before `alpha`). `xdr.scvSortedMap`
+  is deliberately not used — it is best-effort by its own comment and orders string-like keys with
+  `localeCompare`, which is not a bytewise order. Entries that encode to the same key are now
+  rejected with `INVALID_CONTRACT_CALL` instead of producing an invalid map. Decoding is unchanged:
+  `scValToNative` turns a map into an object, so round-tripping is unaffected. The `Map<K, V>` and
+  UDT struct rows in `docs/CONTRACT_BINDINGS.md` are no longer marked as gaps.
+- Fixed `EscrowBuilder.build()` returning the builder's own internal `params` object instead of a
+  copy, so a later `set*` call retroactively changed earlier results and a caller mutating a built
+  object leaked back into the builder. It now returns an independent snapshot, which makes the
+  documented "keep one builder as a template, call `build()` per gig" pattern actually work. The
+  "immutable after `build()`" wording in `docs/ARCHITECTURE.md` was never accurate and has been
+  reworded. Input validation in `build()` is unchanged (#214).
 - `SorobanSpec.encodeArgs` / `valToScVal` now validate instead of coercing (#265). Missing,
   misspelled or extra named arguments (and struct fields), non-boolean `bool` values, non-integer
   or out-of-range `u32`/`i32`/64/128/256-bit integers, non-hex or wrong-length `Bytes`/`BytesN`,

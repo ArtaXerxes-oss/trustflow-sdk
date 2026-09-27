@@ -8,3 +8,7 @@ export type {
   SignedTransaction,
   SignWithFreighterOptions,
 } from '../stellar/signing';
+// Re-exported like the escrow, utils and react entries so a caller that only
+// imports `@trustflow/sdk/wallet` can still `instanceof` the errors thrown by
+// these functions against the same class the root entry exports (#304).
+export { TrustFlowError } from '../errors';

@@ -159,6 +159,18 @@ if (status.data.isReady) {
 ## EscrowBuilder
 Fluent builder: `.setDepositor().setBeneficiary().setAmount().build()`
 
+`build()` validates that `depositor`, `beneficiary` and `amountXLM` are set and returns a **snapshot copy** of the builder's params — never a reference to the builder's internal state. Later `set*` calls and mutations of an already built object therefore cannot affect the builder or any previously built object, so one builder can be reused as a template across gigs:
+
+```typescript
+const template = new EscrowBuilder().setDepositor(DEPOSITOR).setBeneficiary(BENEFICIARY);
+const gigA = template.setAmount('10').build();
+const gigB = template.setAmount('20').build();
+
+gigA.amountXLM; // '10' — unaffected by gigB
+```
+
+Throws `TrustFlowError` (`VALIDATION_ERROR`) when a required field is missing.
+
 ## EscrowMonitor
 - `.on(event, handler)` — subscribe to escrow events
 - `.startPolling(intervalMs, fetchFn)` — begin polling

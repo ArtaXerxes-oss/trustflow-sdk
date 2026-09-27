@@ -6,6 +6,9 @@ module.exports = {
   testEnvironment: 'node',
   testMatch: ['**/tests/**/*.test.ts'],
   testPathIgnorePatterns: ['/node_modules/', '/tests/e2e/'],
+  // Must run before any module that imports @stellar/stellar-sdk, including the
+  // setupFilesAfterEnv matcher below — see tests/support/globals.ts.
+  setupFiles: ['<rootDir>/tests/support/globals.ts'],
   setupFilesAfterEnv: ['<rootDir>/tests/support/scval-matchers.ts'],
   collectCoverageFrom: ['src/**/*.ts', '!src/**/*.d.ts'],
   coverageReporters: ['text-summary', 'lcov', 'json-summary'],

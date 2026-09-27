@@ -446,11 +446,15 @@ describe('SorobanSpec primitive validation (#265)', () => {
   });
 
   describe('bytes and BytesN', () => {
+    // `ScVal.bytes()` returns a `Uint8Array`, whose `toString()` ignores an
+    // encoding argument — wrap in `Buffer` to get the hex form.
+    const hex = (scVal: xdr.ScVal): string => Buffer.from(scVal.bytes() as Uint8Array).toString('hex');
+
     it('accepts hex strings, Buffers and Uint8Arrays for Bytes', () => {
       const spec = single(t.bytes());
 
-      expect(spec.encodeArgs('f', ['00ff'])[0].bytes().toString('hex')).toBe('00ff');
-      expect(spec.encodeArgs('f', ['AB'])[0].bytes().toString('hex')).toBe('ab');
+      expect(hex(spec.encodeArgs('f', ['00ff'])[0])).toBe('00ff');
+      expect(hex(spec.encodeArgs('f', ['AB'])[0])).toBe('ab');
       expect(spec.encodeArgs('f', [''])[0].bytes().length).toBe(0);
       expect(spec.encodeArgs('f', [Buffer.from([1, 2, 3])])[0].bytes().length).toBe(3);
       expect(spec.encodeArgs('f', [new Uint8Array([9])])[0].bytes().length).toBe(1);
@@ -577,5 +581,254 @@ describe('SorobanSpec container validation and error paths (#265)', () => {
 
     expectInvalid(() => spec.valToScVal('abc', t.u32()), 'Invalid value');
     expectInvalid(() => spec.valToScVal('abc', t.u32(), 'custom.path'), 'custom.path');
+  });
+});
+
+/**
+ * The Soroban runtime requires an `scvMap`'s entries to be in strictly increasing
+ * key order. Both hand-built map shapes in `valToScVal` — user-defined structs
+ * and `scSpecTypeMap` — used to emit entries in declaration / insertion order, so
+ * any struct whose fields are not declared alphabetically and any map passed with
+ * unsorted keys produced an argument the host rejects.
+ */
+describe('SorobanSpec map key ordering', () => {
+  /** Symbol keys of an encoded `scvMap`, in the order they were emitted. */
+  const symbolKeys = (scVal: xdr.ScVal): string[] =>
+    (scVal.map() as xdr.ScMapEntry[]).map((e) => scValToNative(e.key()) as string);
+
+  const mapSpec = (keyType: xdr.ScSpecTypeDef, valueType = t.u32()) =>
+    new SorobanSpec([fnEntry('f', [{ name: 'm', type: t.map(keyType, valueType) }])]);
+
+  describe('user-defined structs', () => {
+    const spec = new SorobanSpec([
+      // Declared in deliberately non-alphabetical order.
+      structEntry('Terms', [
+        { name: 'zeta', type: t.u32() },
+        { name: 'alpha', type: t.u32() },
+        { name: 'mid', type: t.u32() },
+      ]),
+      fnEntry('f', [{ name: 'terms', type: t.udt('Terms') }]),
+    ]);
+
+    it('emits fields in sorted key order, not declaration order', () => {
+      const [encoded] = spec.encodeArgs('f', [{ zeta: 1, alpha: 2, mid: 3 }]);
+
+      expect(encoded.switch().name).toBe('scvMap');
+      expect(symbolKeys(encoded)).toEqual(['alpha', 'mid', 'zeta']);
+    });
+
+    it('keeps each value paired with its own field', () => {
+      const [encoded] = spec.encodeArgs('f', [{ zeta: 1, alpha: 2, mid: 3 }]);
+
+      const pairs = (encoded.map() as xdr.ScMapEntry[]).map((e) => [
+        scValToNative(e.key()),
+        scValToNative(e.val()),
+      ]);
+
+      expect(pairs).toEqual([
+        ['alpha', 2],
+        ['mid', 3],
+        ['zeta', 1],
+      ]);
+    });
+
+    it('sorts case-sensitively and bytewise, where a locale comparison would not', () => {
+      const mixedCase = new SorobanSpec([
+        structEntry('Mixed', [
+          { name: 'alpha', type: t.u32() },
+          { name: 'Alpha', type: t.u32() },
+          { name: 'Zeta', type: t.u32() },
+          { name: '_x', type: t.u32() },
+          { name: 'a10', type: t.u32() },
+          { name: 'a2', type: t.u32() },
+        ]),
+        fnEntry('f', [{ name: 'm', type: t.udt('Mixed') }]),
+      ]);
+
+      const [encoded] = mixedCase.encodeArgs('f', [
+        { alpha: 1, Alpha: 2, Zeta: 3, _x: 4, a10: 5, a2: 6 },
+      ]);
+
+      // Bytewise (host) order. `localeCompare`, which `xdr.scvSortedMap` uses,
+      // yields ['_x', 'a10', 'a2', 'alpha', 'Alpha', 'Zeta'] instead.
+      expect(symbolKeys(encoded)).toEqual(['Alpha', 'Zeta', '_x', 'a10', 'a2', 'alpha']);
+    });
+
+    it('round-trips the sorted struct through scValToNative', () => {
+      const [encoded] = spec.encodeArgs('f', [{ zeta: 1, alpha: 2, mid: 3 }]);
+
+      expect(spec.decodeReturnValue('f', encoded)).toEqual({ zeta: 1, alpha: 2, mid: 3 });
+    });
+  });
+
+  describe('scSpecTypeMap', () => {
+    it('sorts an object supplied with unsorted keys', () => {
+      const spec = mapSpec(t.symbol());
+      const [encoded] = spec.encodeArgs('f', [{ bob: 2, alice: 1, carol: 3 }]);
+
+      expect(symbolKeys(encoded)).toEqual(['alice', 'bob', 'carol']);
+    });
+
+    it('sorts a Map supplied in insertion order', () => {
+      const spec = mapSpec(t.symbol());
+      const [encoded] = spec.encodeArgs('f', [new Map([['zed', 1], ['ay', 2], ['mid', 3]])]);
+
+      expect(symbolKeys(encoded)).toEqual(['ay', 'mid', 'zed']);
+    });
+
+    it('produces the same encoding whatever the input order', () => {
+      const spec = mapSpec(t.symbol());
+      const a = spec.encodeArgs('f', [{ a: 1, b: 2, c: 3 }])[0];
+      const b = spec.encodeArgs('f', [{ c: 3, b: 2, a: 1 }])[0];
+      const c = spec.encodeArgs('f', [new Map([['b', 2], ['c', 3], ['a', 1]])])[0];
+
+      expect(a.toXDR('base64')).toBe(b.toXDR('base64'));
+      expect(a.toXDR('base64')).toBe(c.toXDR('base64'));
+    });
+
+    it('sorts string keys bytewise', () => {
+      const spec = mapSpec(t.string());
+      const [encoded] = spec.encodeArgs('f', [{ Zeta: 1, alpha: 2, Alpha: 3 }]);
+
+      const keys = (encoded.map() as xdr.ScMapEntry[]).map((e) => scValToNative(e.key()));
+      expect(keys).toEqual(['Alpha', 'Zeta', 'alpha']);
+    });
+
+    it('sorts u32 keys numerically, not lexicographically', () => {
+      const spec = mapSpec(t.u32());
+      const [encoded] = spec.encodeArgs('f', [new Map([[100, 1], [2, 2], [10, 3]])]);
+
+      const keys = (encoded.map() as xdr.ScMapEntry[]).map((e) => scValToNative(e.key()));
+      expect(keys).toEqual([2, 10, 100]);
+    });
+
+    it('sorts i32 keys numerically with negatives first', () => {
+      const spec = mapSpec(t.i32());
+      const [encoded] = spec.encodeArgs('f', [new Map([[5, 1], [-1, 2], [-9, 3]])]);
+
+      const keys = (encoded.map() as xdr.ScMapEntry[]).map((e) => scValToNative(e.key()));
+      expect(keys).toEqual([-9, -1, 5]);
+    });
+
+    it('sorts u64 and i128 keys numerically across the whole range', () => {
+      const u64 = mapSpec(t.u64());
+      const [u64Val] = u64.encodeArgs('f', [
+        new Map([
+          [2n ** 64n - 1n, 1],
+          [0n, 2],
+          [1n, 3],
+        ]),
+      ]);
+      expect((u64Val.map() as xdr.ScMapEntry[]).map((e) => scValToNative(e.key()))).toEqual([
+        0n,
+        1n,
+        2n ** 64n - 1n,
+      ]);
+
+      const i128 = mapSpec(t.i128());
+      const [i128Val] = i128.encodeArgs('f', [
+        new Map([
+          [0n, 1],
+          [-1n, 2],
+          [-(2n ** 127n), 3],
+        ]),
+      ]);
+      expect((i128Val.map() as xdr.ScMapEntry[]).map((e) => scValToNative(e.key()))).toEqual([
+        -(2n ** 127n),
+        -1n,
+        0n,
+      ]);
+    });
+
+    it('sorts address keys by the host order, not by base58 string order', () => {
+      const contractId = 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4';
+      const spec = mapSpec(t.address());
+      const [encoded] = spec.encodeArgs('f', [new Map([[VALID_ADDRESS, 1], [contractId, 2]])]);
+
+      const keys = (encoded.map() as xdr.ScMapEntry[]).map((e) => String(scValToNative(e.key())));
+      // `scvSortedMap` would order these by base58 (`C...` < `G...`), but the
+      // host orders an `ScAddress` by its XDR union discriminant first, and an
+      // account address (0) sorts before a contract address (1).
+      expect(keys).toEqual([VALID_ADDRESS, contractId]);
+    });
+
+    it('round-trips the sorted map through scValToNative', () => {
+      const spec = mapSpec(t.symbol());
+      const [encoded] = spec.encodeArgs('f', [{ bob: 2, alice: 1, carol: 3 }]);
+
+      expect(spec.decodeReturnValue('f', encoded)).toEqual({ bob: 2, alice: 1, carol: 3 });
+    });
+
+    it('sorts a nested map and a map inside a vec', () => {
+      const spec = new SorobanSpec([
+        fnEntry('f', [
+          { name: 'rows', type: t.vec(t.map(t.symbol(), t.u32())) },
+          { name: 'outer', type: t.map(t.string(), t.map(t.string(), t.string())) },
+        ]),
+      ]);
+
+      const [rows, outer] = spec.encodeArgs('f', [
+        [{ b: 1, a: 2 }],
+        { y: { d: '4', c: '3' }, x: { b: '2', a: '1' } },
+      ]);
+
+      expect(symbolKeys(rows.vec()![0])).toEqual(['a', 'b']);
+      const outerKeys = (outer.map() as xdr.ScMapEntry[]).map((e) => scValToNative(e.key()));
+      expect(outerKeys).toEqual(['x', 'y']);
+      expect(symbolKeys((outer.map() as xdr.ScMapEntry[])[1].val())).toEqual(['c', 'd']);
+    });
+  });
+
+  describe('duplicate keys', () => {
+    // A JS `Map` collapses equal keys, and a plain object never had two, so the
+    // only way a caller can smuggle a duplicate past the encoder is by passing
+    // keys that are distinct natively but encode to the same `ScVal` — which
+    // `parseInteger` accepts as a number, a bigint or a numeric string.
+    it('rejects a number key and its bigint spelling', () => {
+      const spec = mapSpec(t.u32(), t.string());
+
+      expectInvalid(
+        () => spec.encodeArgs('f', [new Map([[1, 'a'], [1n, 'b']])]),
+        'args.m',
+        "duplicate map key '1'",
+      );
+    });
+
+    it('rejects a number key and its numeric-string spelling', () => {
+      const spec = mapSpec(t.u32(), t.string());
+
+      expectInvalid(
+        () => spec.encodeArgs('f', [new Map([[1, 'a'], ['1', 'b']])]),
+        "duplicate map key '1'",
+      );
+    });
+
+    it('rejects duplicates that only become adjacent after sorting', () => {
+      const spec = mapSpec(t.u32(), t.string());
+
+      expectInvalid(
+        () => spec.encodeArgs('f', [new Map([[9, 'x'], [1, 'a'], [1n, 'b']])]),
+        "duplicate map key '1'",
+      );
+    });
+
+    it('rejects a struct spec that declares the same field twice', () => {
+      const spec = new SorobanSpec([
+        structEntry('Dup', [
+          { name: 'amount', type: t.u32() },
+          { name: 'amount', type: t.u32() },
+        ]),
+        fnEntry('f', [{ name: 'd', type: t.udt('Dup') }]),
+      ]);
+
+      expectInvalid(() => spec.encodeArgs('f', [{ amount: 1 }]), 'args.d', 'duplicate map key');
+    });
+
+    it('accepts a single-entry map and an empty one', () => {
+      const spec = mapSpec(t.symbol());
+
+      expect(symbolKeys(spec.encodeArgs('f', [{}])[0])).toEqual([]);
+      expect(symbolKeys(spec.encodeArgs('f', [{ only: 1 }])[0])).toEqual(['only']);
+    });
   });
 });
