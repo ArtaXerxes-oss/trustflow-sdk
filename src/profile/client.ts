@@ -3,6 +3,7 @@ import type { Profile, UpdateProfileParams } from '../types/profile';
 import { isValidStellarAddress } from '../utils/validation';
 import { createApiHttpClient, toApiErrorMessage } from '../utils/http';
 import type { ApiRetryConfig } from '../utils/http';
+import type { HttpInterceptors } from '../utils/interceptors';
 
 export interface ProfileClientOptions {
   /** Per-request timeout (ms) applied to backend profile calls. */
@@ -16,6 +17,8 @@ export interface ProfileClientOptions {
    * idempotent) is retried, and neither is retried on `4xx`.
    */
   retry?: ApiRetryConfig;
+  /** Request/response interceptor hooks applied to profile API calls. */
+  interceptors?: HttpInterceptors;
 }
 
 /**
@@ -44,6 +47,7 @@ export class ProfileClient {
       baseURL: this.apiUrl,
       timeoutMs: options.timeoutMs,
       retry: options.retry,
+      interceptors: options.interceptors,
       additionalHeaders: {
         Authorization: `Bearer ${this.token}`,
       },

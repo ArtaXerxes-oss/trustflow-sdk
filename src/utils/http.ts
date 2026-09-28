@@ -1,5 +1,7 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import { readRetryAfterMs } from './transient';
+import { attachInterceptors } from './interceptors';
+import type { HttpInterceptors } from './interceptors';
 
 declare module 'axios' {
   export interface AxiosRequestConfig {
@@ -52,6 +54,8 @@ export interface ApiHttpClientOptions {
   timeoutMs?: number;
   retry?: ApiRetryConfig;
   additionalHeaders?: Record<string, string>;
+  /** Request/response interceptor hooks applied to every call made by this client. */
+  interceptors?: HttpInterceptors;
 }
 
 const DEFAULT_RETRY_CONFIG: Required<ApiRetryConfig> = {
@@ -226,6 +230,14 @@ export function createApiHttpClient(options: ApiHttpClientOptions): AxiosInstanc
     timeout: options.timeoutMs ?? 10_000,
     headers,
   });
+
+  // Interceptors are attached first so request hooks run once per attempt
+  // (including retries) and response hooks observe the final outcome, not
+  // every intermediate failure. Axios runs response interceptors in
+  // registration order, so the retry handler below is the outermost one.
+  if (options.interceptors) {
+    attachInterceptors(instance, options.interceptors);
+  }
 
   installApiRetryInterceptor(instance, retryConfig);
 

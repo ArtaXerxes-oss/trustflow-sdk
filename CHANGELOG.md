@@ -141,6 +141,13 @@ non-idempotent `POST`s on `5xx`. The gap analysis is in the issue; the implement
 - `submitTransaction` (a `POST`) retries only the genuinely ambiguous cases — transport error,
   `429`, `408`, `5xx` — and never a Horizon response carrying result codes. The replayed envelope is
   byte-identical, so a retry cannot double-spend.
+- **Composes with `HttpInterceptors`** (#323). `createApiHttpClient` accepts both `retry` and
+  `interceptors`, and registers the interceptor chain *before* the retry handler, so request hooks
+  run once per transport attempt (including retries) and response hooks observe the outcome the SDK
+  actually returns rather than every intermediate `5xx`. `retry` and `interceptors` are likewise
+  both accepted by `DisputeClientOptions`, `ProfileClientOptions`, `IPFSConfig`,
+  `AuthRequestOptions` and `getGigs` — on `getGigs`, an explicit `interceptors` wins over the
+  constructor option, which wins over `config.interceptors`.
 
 **Behaviour change to be aware of:** `TransactionPipeline` now returns the *specific* error for a
 terminal failure (`SIMULATION_ERROR`, `SUBMISSION_ERROR`) instead of wrapping it in

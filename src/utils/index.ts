@@ -6,6 +6,7 @@ export * from './node-retry';
 export * from './environment';
 export * from './logger';
 export * from './http';
+export * from './interceptors';
 export * from './cache';
 export * from './timezone';
 export * from './request-validation';

@@ -5,6 +5,7 @@ import { TrustFlowError } from '../errors';
 import { buildDisputeArgs } from '../contract/build';
 import { createApiHttpClient, toApiErrorMessage } from '../utils/http';
 import type { ApiRetryConfig } from '../utils/http';
+import type { HttpInterceptors } from '../utils/interceptors';
 import { logger } from '../utils/logger';
 
 /**
@@ -71,6 +72,8 @@ export interface DisputeClientOptions {
    * `GET` and is retried.
    */
   retry?: ApiRetryConfig;
+  /** Request/response interceptor hooks. Defaults to `config.interceptors`. */
+  interceptors?: HttpInterceptors;
 }
 
 /**
@@ -114,6 +117,7 @@ export class DisputeClient {
       baseURL: this.apiUrl,
       timeoutMs: options.timeoutMs,
       retry: options.retry,
+      interceptors: options.interceptors ?? config.interceptors,
       additionalHeaders: {
         Authorization: `Bearer ${this.token}`,
       },

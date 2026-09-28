@@ -3,6 +3,7 @@ import { EscrowParams, EscrowState, SDKResult, GetGigsParams, GigsPage } from '.
 import { assertStellarAddress, isValidEscrowId, xlmToStroops } from '../utils/validation';
 import { createApiHttpClient, toApiErrorMessage } from '../utils/http';
 import type { ApiRetryConfig } from '../utils/http';
+import type { HttpInterceptors } from '../utils/interceptors';
 import { buildCreateEscrowArgs, buildClaimArgs, buildFundArgs } from '../contract/build';
 
 /** Per-call transport overrides for {@link TrustFlowEscrowClient.getGigs}. */
@@ -15,6 +16,11 @@ export interface GetGigsOptions {
    * `getGigs` is a `GET`, so every retried request is idempotent.
    */
   retry?: ApiRetryConfig;
+  /**
+   * Request/response interceptor hooks for this call. Falls back to the
+   * constructor option, then to `config.interceptors`.
+   */
+  interceptors?: HttpInterceptors;
 }
 
 /** Constructor options for {@link TrustFlowEscrowClient}. */
@@ -27,6 +33,11 @@ export interface TrustFlowEscrowClientOptions {
    * and only for idempotent methods.
    */
   retry?: ApiRetryConfig;
+  /**
+   * Default request/response interceptor hooks for backend calls. Falls back to
+   * `config.interceptors`.
+   */
+  interceptors?: HttpInterceptors;
 }
 
 /**
@@ -47,11 +58,13 @@ export class TrustFlowEscrowClient {
   protected readonly contractConfig: ContractConfig;
   private readonly timeoutMs?: number;
   private readonly retry?: ApiRetryConfig;
+  private readonly interceptors?: HttpInterceptors;
 
   constructor(config: ContractConfig, options: TrustFlowEscrowClientOptions = {}) {
     this.contractConfig = config;
     this.timeoutMs = options.timeoutMs;
     this.retry = options.retry;
+    this.interceptors = options.interceptors;
   }
 
   /**
@@ -238,8 +251,8 @@ export class TrustFlowEscrowClient {
    * @param params.status - Filter by escrow status
    * @param params.depositor - Filter by depositor address
    * @param params.beneficiary - Filter by beneficiary address
-   * @param options - Per-call `timeoutMs` and `retry` budget, overriding the
-   *   client-wide defaults
+   * @param options - Per-call `timeoutMs`, `retry` budget and `interceptors`,
+   *   overriding the client-wide defaults
    *
    * @returns `{ ok: true, data: GigsPage }` on success, `{ ok: false, error }` on failure
    *
@@ -284,6 +297,9 @@ export class TrustFlowEscrowClient {
       apiKey: this.contractConfig.apiKey,
       timeoutMs: options.timeoutMs ?? this.timeoutMs,
       retry: options.retry ?? this.retry,
+      // Per-call overrides win, then the constructor option, then the
+      // contract-wide hooks.
+      interceptors: options.interceptors ?? this.interceptors ?? this.contractConfig.interceptors,
     });
 
     try {

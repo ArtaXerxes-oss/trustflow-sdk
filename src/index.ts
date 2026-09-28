@@ -32,6 +32,7 @@ export * from './utils/circuit-breaker';
 export * from './utils/environment';
 export * from './utils/transient';
 export * from './utils/retry';
+export * from './utils/interceptors';
 export * from './tx-pipeline';
 export * from './contract';
 export { TrustFlowClient } from './client';

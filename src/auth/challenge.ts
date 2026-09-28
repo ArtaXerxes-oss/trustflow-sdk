@@ -1,5 +1,6 @@
 import { createApiHttpClient } from '../utils/http';
 import type { ApiRetryConfig } from '../utils/http';
+import type { HttpInterceptors } from '../utils/interceptors';
 import { TrustFlowError } from '../errors';
 
 export interface AuthChallenge {
@@ -22,6 +23,8 @@ export interface AuthRequestOptions {
    * fails fast — retrying a bad signature only wastes rate limit.
    */
   retry?: ApiRetryConfig;
+  /** Request/response interceptor hooks applied to auth API calls. */
+  interceptors?: HttpInterceptors;
 }
 
 /**
@@ -41,6 +44,7 @@ export async function requestChallenge(
     baseURL: apiUrl,
     timeoutMs: options.timeoutMs,
     retry: options.retry,
+    interceptors: options.interceptors,
   });
   try {
     const response = await http.get<{ challenge: string }>('/auth/challenge', {
@@ -70,6 +74,7 @@ export async function verifyAndGetToken(
     baseURL: apiUrl,
     timeoutMs: options.timeoutMs,
     retry: options.retry,
+    interceptors: options.interceptors,
   });
   try {
     const response = await http.post<{ token: string }>('/auth/verify', { address, signature });
