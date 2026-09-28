@@ -4,4 +4,8 @@ export * from './retry';
 export * from './logger';
 export * from './http';
 export * from './cache';
+export * from './timezone';
+export * from './request-validation';
+export * from './connection-pool';
+export * from './circuit-breaker';
 export { TrustFlowError } from '../errors';
