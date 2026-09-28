@@ -1,4 +1,5 @@
 import { createApiHttpClient } from '../utils/http';
+import type { HttpInterceptors } from '../utils/interceptors';
 import { TrustFlowError } from '../errors';
 
 export interface AuthChallenge {
@@ -9,6 +10,8 @@ export interface AuthChallenge {
 
 export interface AuthRequestOptions {
   timeoutMs?: number;
+  /** Request/response interceptor hooks applied to auth API calls. */
+  interceptors?: HttpInterceptors;
 }
 
 /**
@@ -21,7 +24,11 @@ export async function requestChallenge(
   address: string,
   options: AuthRequestOptions = {},
 ): Promise<AuthChallenge> {
-  const http = createApiHttpClient({ baseURL: apiUrl, timeoutMs: options.timeoutMs });
+  const http = createApiHttpClient({
+    baseURL: apiUrl,
+    timeoutMs: options.timeoutMs,
+    interceptors: options.interceptors,
+  });
   try {
     const response = await http.get<{ challenge: string }>('/auth/challenge', {
       params: { address },
@@ -43,7 +50,11 @@ export async function verifyAndGetToken(
   signature: string,
   options: AuthRequestOptions = {},
 ): Promise<string> {
-  const http = createApiHttpClient({ baseURL: apiUrl, timeoutMs: options.timeoutMs });
+  const http = createApiHttpClient({
+    baseURL: apiUrl,
+    timeoutMs: options.timeoutMs,
+    interceptors: options.interceptors,
+  });
   try {
     const response = await http.post<{ token: string }>('/auth/verify', { address, signature });
     return response.data.token;
