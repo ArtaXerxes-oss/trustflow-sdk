@@ -5,7 +5,11 @@ import {
   NETWORK_PASSPHRASES,
   DEFAULT_NETWORK,
   SDK_VERSION,
+  DEFAULT_API_VERSION,
 } from './constants';
+import { RequestDeduplicator } from './utils/dedup';
+import { negotiateApiVersion, ApiVersionNegotiationResult } from './utils/version';
+import { logger } from './utils/logger';
 import { TrustFlowError } from './errors';
 import type { Network, ClientConfig } from './types';
 import { IPFSStorage } from './storage';
@@ -78,6 +82,7 @@ export class TrustFlowClient {
   private server: Horizon.Server;
   private sorobanServer?: rpc.Server;
   private readonly balanceCache?: SimpleCache<string, string>;
+  private readonly deduplicator = new RequestDeduplicator();
   private _connected: boolean = false;
 
   readonly network: Network;
@@ -86,6 +91,7 @@ export class TrustFlowClient {
   readonly apiBaseUrl?: string;
   readonly apiKey?: string;
   readonly version: string = SDK_VERSION;
+  readonly apiVersion: string;
   /** IPFS upload helper — `client.storage.upload(file)`. */
   readonly storage: IPFSStorage;
   /** Every account this client can act as. See {@link TrustFlowClient.useAccount}. */
@@ -537,6 +543,7 @@ export class TrustFlowClient {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'X-SDK-Version': this.version,
+      'X-API-Version': this.apiVersion,
     };
 
     const account = this.resolveAccount(options.account);

@@ -46,6 +46,22 @@ export class TrustFlowError extends Error {
     return new TrustFlowError(message, code, error);
   }
 
+  static versionMismatch(
+    clientVersion: string,
+    serverVersion: string,
+    details?: string,
+  ): TrustFlowError {
+    const reason = details ? ` (${details})` : '';
+    return new TrustFlowError(
+      `API version mismatch: client expected ${clientVersion}, server reported ${serverVersion}${reason}`,
+      'VERSION_MISMATCH',
+    );
+  }
+
+  static userRejected(detail = 'User rejected wallet connection', cause?: unknown): TrustFlowError {
+    return new TrustFlowError(detail, 'USER_REJECTED', cause);
+  }
+
   static notFound(resource: string): TrustFlowError {
     return new TrustFlowError(`${resource} not found`, 'NOT_FOUND');
   }

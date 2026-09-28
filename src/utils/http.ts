@@ -51,6 +51,7 @@ export interface ApiRetryConfig {
 export interface ApiHttpClientOptions {
   baseURL: string;
   apiKey?: string;
+  apiVersion?: string;
   timeoutMs?: number;
   retry?: ApiRetryConfig;
   additionalHeaders?: Record<string, string>;
@@ -218,6 +219,8 @@ export function createApiHttpClient(options: ApiHttpClientOptions): AxiosInstanc
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'X-SDK-Version': SDK_VERSION,
+    'X-API-Version': options.apiVersion ?? DEFAULT_API_VERSION,
     ...options.additionalHeaders,
   };
 
