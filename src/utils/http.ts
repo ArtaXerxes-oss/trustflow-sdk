@@ -1,5 +1,6 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import axiosRetry from 'axios-retry';
+import { attachInterceptors, HttpInterceptors } from './interceptors';
 
 /**
  * Retry tuning for backend API requests.
@@ -19,6 +20,8 @@ export interface ApiHttpClientOptions {
   timeoutMs?: number;
   retry?: ApiRetryConfig;
   additionalHeaders?: Record<string, string>;
+  /** Request/response interceptor hooks applied to every call made by this client. */
+  interceptors?: HttpInterceptors;
 }
 
 const DEFAULT_RETRY_CONFIG: Required<ApiRetryConfig> = {
@@ -52,6 +55,12 @@ export function createApiHttpClient(options: ApiHttpClientOptions): AxiosInstanc
     timeout: options.timeoutMs ?? 10_000,
     headers,
   });
+
+  // Attached before axios-retry so every attempt (including retries) passes
+  // through the interceptor chain exactly once.
+  if (options.interceptors) {
+    attachInterceptors(instance, options.interceptors);
+  }
 
   axiosRetry(instance, {
     retries: retryConfig.retries,
