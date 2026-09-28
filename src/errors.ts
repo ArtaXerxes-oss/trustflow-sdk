@@ -22,7 +22,8 @@ export type TrustFlowErrorCode =
   | 'NETWORK_ERROR'
   | 'AUTH_ERROR'
   | 'TIMEOUT'
-  | 'INVALID_CONTRACT_CALL';
+  | 'INVALID_CONTRACT_CALL'
+  | 'CIRCUIT_BREAKER_OPEN';
 
 export class TrustFlowError extends Error {
   readonly code: TrustFlowErrorCode;
